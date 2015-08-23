@@ -1,6 +1,6 @@
 {
   "name": "aether",
-  "version": "0.3.22",
+  "version": "0.3.23",
   "description": "Analyzes, instruments, and transpiles JS to help beginners.",
   "keywords": [
     "lint",
@@ -54,6 +54,7 @@
     "grunt-newer": "^1.1.0",
     "grunt-notify": "~0.2.7",
     "grunt-push-release": "~0.1.1",
+    "grunt-string-replace": "^1.2.0",
     "jasmine-node": "~1.11.0"
   },
   "scripts": {
