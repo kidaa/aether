@@ -13,8 +13,12 @@ defaults = require './defaults'
 problems = require './problems'
 execution = require './execution'
 <<<<<<< HEAD
+<<<<<<< HEAD
 utils = require './utils'
 morph = require './morph'
+=======
+traversal = require './traversal'
+>>>>>>> codecombat/master
 =======
 traversal = require './traversal'
 >>>>>>> codecombat/master
@@ -30,6 +34,7 @@ module.exports = class Aether
   @addGlobal: protectBuiltins.addGlobal  # Use before instantiating Aether instances
   @replaceBuiltin: protectBuiltins.replaceBuiltin
   @globals: protectBuiltins.addedGlobals
+<<<<<<< HEAD
 
 <<<<<<< HEAD
   utilityHelpers: ->
@@ -40,6 +45,11 @@ module.exports = class Aether
   #         and doing validation.
   constructor: (options) ->
 =======
+  # Current call depth
+  depth: 0
+>>>>>>> codecombat/master
+=======
+
   # Current call depth
   depth: 0
 >>>>>>> codecombat/master

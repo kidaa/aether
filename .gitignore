@@ -57,5 +57,10 @@ Thumbs.db
 .idea
 nbproject
 
+<<<<<<< HEAD
 .grunt
 coverage/
+=======
+.grunt
+coverage/
+>>>>>>> codecombat/master
