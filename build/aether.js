@@ -61008,11 +61008,23 @@ module.exports={
         if (!(opts !== undefined && opts.ignoreBody)) {
             body = parseStatement();
         }
+<<<<<<< HEAD
 
         state.inIteration = oldInIteration;
 
         if (typeof left === 'undefined') {
             return markerApply(marker, delegate.createForStatement(init, test, update, body));
+=======
+        fnExpr = getUserFnExpr(userFnMap, node.right);
+        if (fnExpr && possiblyGeneratorifyUserFunction(fnExpr)) {
+          if (simpleLoops && (parentWhile = getImmediateParentOfType(node, S.WhileStatement))) {
+            yieldCountVar = "__yieldCount" + parentWhile.whileIndex;
+            autoYieldStmt = "if (typeof " + yieldCountVar + " !== 'undefined' && " + yieldCountVar + " !== null) {" + yieldCountVar + "++;}";
+          } else {
+            autoYieldStmt = "";
+          }
+          return node.update("var __gen" + (node.left.source()) + " = " + (node.right.source()) + "; while (true) { var __result" + (node.left.source()) + " = __gen" + (node.left.source()) + ".next(); if (__result" + (node.left.source()) + ".done) { " + (node.left.source()) + " = __result" + (node.left.source()) + ".value; break; } var _yieldValue = __result" + (node.left.source()) + ".value; if (this.onAetherYield) { this.onAetherYield(_yieldValue); } yield _yieldValue; " + autoYieldStmt + " }");
+>>>>>>> codecombat/master
         }
 
         if (operator.value === 'in') {
