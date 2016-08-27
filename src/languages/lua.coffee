@@ -11,6 +11,7 @@ module.exports = class Lua extends Language
     super arguments...
     parserHolder.lua2js ?= self?.aetherLua2JS ? require 'lua2js'
     @runtimeGlobals = parserHolder.lua2js.stdlib
+    @injectCode = require 'aether-lang-stdlibs/lua-stdlib.ast.json'
     @fidMap = {}
 
   obviouslyCannotTranspile: (rawCode) ->
@@ -56,22 +57,23 @@ module.exports = class Lua extends Language
 
     lintProblems
 
+  usesFunctionWrapping: () -> false
 
   wrapResult: (ast, name, params) ->
-    params = ({type: 'Identifier', name: arg} for arg in params)
-    ast = {type: "Program", body:[{type: "FunctionDeclaration", id: {type: "Identifier", name: name or 'foo'}, params: params, body: ast}]}
-    ast.body[0].body.body.unshift {"type": "VariableDeclaration","declarations": [
+    ast.body.unshift {"type": "VariableDeclaration","declarations": [
          { "type": "VariableDeclarator", "id": {"type": "Identifier", "name": "self" },"init": {"type": "ThisExpression"} }
-      ],"kind": "var"}
+      ],"kind": "var", "userCode": false}
     ast
 
   parse: (code, aether) ->
-    Lua.prototype.wrapResult (Lua.prototype.callParser code, false), aether.options.functionName, aether.options.functionParameters
+    ast = Lua.prototype.wrapResult (Lua.prototype.callParser code, false), aether.options.functionName, aether.options.functionParameters
+    ast
 
 
   parseDammit: (code, aether) ->
     try
-      return Lua.prototype.wrapResult (Lua.prototype.callParser code, true), aether.options.functionName, aether.options.functionParameters
+      ast = Lua.prototype.wrapResult (Lua.prototype.callParser code, true), aether.options.functionName, aether.options.functionParameters
+      return ast
     catch error
       return {"type": "BlockStatement": body:[{type: "EmptyStatement"}]}
 

@@ -14,11 +14,11 @@ module.exports = (grunt) ->
       parsers:
         files: [
           {src: 'build/python.js', dest: 'build/python.min.js'}
-          {src: 'build/clojure.js', dest: 'build/clojure.min.js'}
           {src: 'build/lua.js', dest: 'build/lua.min.js'}
-          {src: 'build/io.js', dest: 'build/io.min.js'}
           {src: 'build/coffeescript.js', dest: 'build/coffeescript.min.js'}
           {src: 'build/javascript.js', dest: 'build/javascript.min.js'}
+          {src: 'build/java.js', dest: 'build/java.min.js'}
+          {src: 'build/html.js', dest: 'build/html.min.js'}
         ]
 
     coffeelint:
@@ -35,7 +35,7 @@ module.exports = (grunt) ->
 
     watch:
       files: ['src/**/*', 'test/**/*.coffee', 'dev/**/*.coffee']
-      tasks: ['coffeelint', 'coffee', 'browserify', 'concat', 'jasmine_node']
+      tasks: ['coffeelint', 'coffee', 'browserify', 'jasmine_node']
       options:
         spawn: true
         interrupt: true
@@ -82,28 +82,24 @@ module.exports = (grunt) ->
         dest: 'build/<%= pkg.name %>.js'
         options:
           #standalone: "Aether"  # can't figure out how to get this to work
-          ignore: ['lodash', 'traceur', 'closer', 'filbert',
-            'filbert/filbert_loose', 'lua2js', 'iota-compiler',
-            'coffee-script-redux', 'jshint']
+          ignore: ['lodash', 'filbert',
+            'filbert/filbert_loose', 'lua2js',
+            'coffee-script-redux', 'jshint', 'cashew-js',
+            'esper.js', 'deku', 'htmlparser2']
       parsers:
         files: [
           {src: 'parsers/python.js', dest: 'build/python.js'}
-          {src: 'parsers/clojure.js', dest: 'build/clojure.js'}
           {src: 'parsers/lua.js', dest: 'build/lua.js'}
-          {src: 'parsers/io.js', dest: 'build/io.js'}
           {src: 'parsers/coffeescript.js', dest: 'build/coffeescript.js'}
           {src: 'parsers/javascript.js', dest: 'build/javascript.js'}
+          {src: 'parsers/java.js', dest: 'build/java.js'}
+          {src: 'parsers/html.js', dest: 'build/html.js'}
         ]
       # We're not using jasmine but now jasmine_node,
       # so we don't need to browserify the tests
       #test:
       #  src: ['lib/test/*.js']
       #  dest: 'build/test/<%= pkg.name %>_specs.js'
-
-    concat:
-      build:
-        src: ['node_modules/traceur/bin/traceur.js', 'build/<%= pkg.name %>.js']
-        dest: 'build/<%= pkg.name %>.js'
 
     'string-replace':
       build:
@@ -154,6 +150,9 @@ module.exports = (grunt) ->
         basePath: "coverage/instrument"
 
     copy:
+      jstests:
+        src: "test/java_milestones_spec.ec5"
+        dest: "lib/test/java_milestones_spec.js"
       tests:
         expand: true
         flatten: true
@@ -180,7 +179,6 @@ module.exports = (grunt) ->
   grunt.loadNpmTasks 'grunt-contrib-coffee'
   grunt.loadNpmTasks 'grunt-contrib-watch'
   grunt.loadNpmTasks 'grunt-browserify'
-  grunt.loadNpmTasks 'grunt-contrib-concat'
   grunt.loadNpmTasks 'grunt-string-replace'
   grunt.loadNpmTasks 'grunt-notify'
   grunt.loadNpmTasks 'grunt-gh-pages'
@@ -191,14 +189,14 @@ module.exports = (grunt) ->
   grunt.loadNpmTasks 'grunt-contrib-copy'
 
   # Default task(s).
-  grunt.registerTask 'default', ['coffeelint', 'coffee', 'browserify', 'concat',
-    'string-replace', 'jasmine_node:run', 'jade', 'sass'] #, 'uglify']
-  grunt.registerTask 'travis', ['coffeelint', 'coffee', 'jasmine_node:run']
-  grunt.registerTask 'test', ['newer:coffee', 'jasmine_node:run']
+  grunt.registerTask 'default', ['coffeelint', 'coffee', 'browserify',
+    'string-replace', 'copy:jstests', 'jasmine_node:run', 'jade', 'sass'] #, 'uglify']
+  grunt.registerTask 'travis', ['coffeelint', 'coffee', 'copy:jstests', 'jasmine_node:run']
+  grunt.registerTask 'test', ['newer:coffee', 'copy:jstests', 'jasmine_node:run']
   grunt.registerTask 'coverage', ['coffee', 'instrument', 'copy:tests',
     'jasmine_node:runCoverage', 'storeCoverage', 'makeReport']
   grunt.registerTask 'build', ['coffeelint', 'coffee', 'browserify:src',
-    'concat', 'string-replace', 'jade', 'sass', 'uglify:build']
+    'string-replace', 'jade', 'sass', 'uglify:build']
   grunt.registerTask 'parsers', ['browserify:parsers', 'uglify:parsers']
 
   # Run a single test with `grunt spec:filename`.

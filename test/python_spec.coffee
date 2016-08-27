@@ -1,5 +1,7 @@
 Aether = require '../aether'
 
+list = require('skulpty').pythonRuntime.utils.createList
+
 describe "Python test suite", ->
   describe "Basics", ->
     aether = new Aether language: "python"
@@ -127,7 +129,7 @@ describe "Python test suite", ->
       return L[0:2]
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual([1, 45])
+      expect(aether.run()).toEqual(list([1, 45]))
 
     it "L[f(2)::9 - (2 * 5)]", ->
       code = """
@@ -137,7 +139,7 @@ describe "Python test suite", ->
       return L[f(2)::9 - (2 * 5)]
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual([2, 1, 0])
+      expect(aether.run()).toEqual(list([2, 1, 0]))
 
     it "T[-1:-3:-1]", ->
       code = """
@@ -145,7 +147,7 @@ describe "Python test suite", ->
       return T[-1:-3:-1]
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual([4, 3])
+      expect(aether.run()).toEqual(list([4, 3]))
 
     it "[str(round(pi, i)) for i in range(1, 6)]", ->
       code = """
@@ -154,7 +156,7 @@ describe "Python test suite", ->
       return L
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual(['3.1', '3.14', '3.142', '3.1416', '3.14159'])
+      expect(aether.run()).toEqual(list(['3.1', '3.14', '3.142', '3.1416', '3.14159']))
 
     it "[(x*2, y) for x in range(4) if x > 1 for y in range(2)]", ->
       code = """
@@ -162,14 +164,14 @@ describe "Python test suite", ->
       return L[1]
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual([4, 1])
+      expect(aether.run()).toEqual(list([4, 1]))
 
     it "range(0, 10, 4)", ->
       code = """
       return range(0, 10, 4)
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual([0, 4, 8])
+      expect(aether.run()).toEqual(list([0, 4, 8]))
 
     it "sequence operations", ->
       code = """
@@ -179,7 +181,7 @@ describe "Python test suite", ->
       return b
       """
       aether.transpile(code)
-      expect(aether.run()).toEqual([1, 2, 1, 2])
+      expect(aether.run()).toEqual(list([1, 2, 1, 2]))
 
     it "default and keyword fn arguments", ->
       code = """
@@ -234,6 +236,34 @@ describe "Python test suite", ->
       aether = new Aether language: "python", protectAPI: true
       aether.transpile code
       expect(aether.run()).toEqual(true)
+
+    it "Empty if", ->
+      code = """
+if True:
+x = 5
+      """
+      aether = new Aether language: "python", simpleLoops: true
+      aether.transpile code
+      expect(aether.problems.warnings.length).toEqual(1)
+      expect(aether.problems.warnings[0].type).toEqual('transpile')
+      expect(aether.problems.warnings[0].message).toEqual("Empty if statement. Put 4 spaces in front of statements inside the if statement.")
+
+    it "convertToNativeType", ->
+      globals =
+        foo: ->
+          o = p1: 34, p2: 'Bob'
+          Object.defineProperty o, 'health', value: 42
+      code = """
+        myObj = self.foo()
+        return myObj.health
+      """
+      aether = new Aether language: "python", simpleLoops: true, yieldConditionally: true
+      aether.transpile code
+      f = aether.createFunction()
+      gen = f.apply globals
+      result = gen.next()
+      expect(aether.problems.errors.length).toEqual(0)
+      expect(result.value).toEqual(42)
 
   describe "Conflicts", ->
     it "doesn't interfere with type property", ->
@@ -419,7 +449,7 @@ describe "Python test suite", ->
       expect(/ReferenceError/.test(aether.problems.errors[0].message)).toBe(true)
       expect(aether.problems.errors[0].range).toEqual([ { ofs : 14, row : 1, col : 8 }, { ofs : 15, row : 1, col : 9 } ])
 
-  describe "Simple loop", ->
+  xdescribe "Simple loop", ->
     it "loop:", ->
       code = """
       total = 0
@@ -431,6 +461,34 @@ describe "Python test suite", ->
       aether = new Aether language: "python", simpleLoops: true
       aether.transpile(code)
       expect(aether.run()).toEqual(10)
+
+    it "loop : (whitespace)", ->
+      code = """
+      total = 0
+      loop  :
+        total += 1
+        if total is 10: break;
+      return total
+      """
+      aether = new Aether language: "python", simpleLoops: true
+      aether.transpile(code)
+      expect(aether.run()).toEqual(10)
+
+    it "loop : (no :)", ->
+      code = """
+      total = 0
+      loop
+        total += 1
+        if total is 10: break;
+      return total
+      """
+      aether = new Aether language: "python", simpleLoops: true
+      aether.transpile(code)
+      expect(aether.problems.warnings.length).toEqual(1)
+      expect(aether.problems.warnings[0].type).toEqual('transpile')
+      expect(aether.problems.warnings[0].message).toEqual("You are missing a ':' after 'loop'. Try `loop:`")
+      expect(aether.run()).toEqual(10)
+
 
     xit "one line", ->
       # Blocked by https://github.com/differentmatt/filbert/issues/41
@@ -667,33 +725,219 @@ x = 5
       expect(aether.problems.warnings[0].type).toEqual('transpile')
       expect(aether.problems.warnings[0].message).toEqual("Empty loop. Put 4 spaces in front of statements inside loops.")
 
-    it "Empty if", ->
-      code = """
-if True:
-x = 5
-      """
-      aether = new Aether language: "python", simpleLoops: true
-      aether.transpile code
-      expect(aether.problems.warnings.length).toEqual(1)
-      expect(aether.problems.warnings[0].type).toEqual('transpile')
-      expect(aether.problems.warnings[0].message).toEqual("Empty if statement. Put 4 spaces in front of statements inside the if statement.")
-
-    it "convertToNativeType", ->
-      globals =
-        foo: ->
-          o = p1: 34, p2: 'Bob'
-          Object.defineProperty o, 'health', value: 42
-      code = """
-        myObj = self.foo()
-        return myObj.health
-      """
-      aether = new Aether language: "python", simpleLoops: true, yieldConditionally: true
-      aether.transpile code
-      f = aether.createFunction()
-      gen = f.apply globals
-      result = gen.next()
-      expect(aether.problems.errors.length).toEqual(0)
-      expect(result.value).toEqual(42)
-
     # TODO: simple loop in a function
     # TODO: blocked by https://github.com/codecombat/aether/issues/48
+
+  xdescribe "whileTrueAutoYield", ->
+    it "while True: no yieldConditionally", ->
+      code = """
+      total = 0
+      while True:
+        total += 1
+        if total is 10: break;
+      return total
+      """
+      aether = new Aether language: "python", whileTrueAutoYield: true
+      aether.transpile(code)
+      expect(aether.run()).toEqual(10)
+
+    it "Conditional yielding and simpleLoops", ->
+      aether = new Aether language: "python", yieldConditionally: true, whileTrueAutoYield: true, simpleLoops: true
+      dude = {}
+      code = """
+        x = 0
+        while True:
+          x += 1
+          if x >= 3:
+            break
+        x = 0
+        loop:
+          x += 1
+          if x >= 3:
+            break
+      """
+      aether.transpile code
+      f = aether.createFunction()
+      gen = f.apply dude
+      expect(gen.next().done).toEqual false
+      expect(gen.next().done).toEqual false
+      expect(gen.next().done).toEqual false
+      expect(gen.next().done).toEqual false
+      expect(gen.next().done).toEqual true
+
+    it "Conditional yielding empty loop", ->
+      aether = new Aether language: "python", yieldConditionally: true, whileTrueAutoYield: true
+      dude = {}
+      code = """
+        x = 0
+        while True:
+          x += 1
+          if x >= 3:
+            break
+      """
+      aether.transpile code
+      f = aether.createFunction()
+      gen = f.apply dude
+      expect(gen.next().done).toEqual false
+      expect(gen.next().done).toEqual false
+      expect(gen.next().done).toEqual true
+
+    it "Conditional yielding mixed loops", ->
+      aether = new Aether language: "python", yieldConditionally: true, whileTrueAutoYield: true
+      dude =
+        killCount: 0
+        slay: ->
+          @killCount += 1
+          aether._shouldYield = true
+        getKillCount: -> return @killCount
+      code = """
+        while True:
+          self.slay()
+          if self.getKillCount() >= 5:
+            break
+        x = 0
+        while True:
+          x += 1
+          if x > 10:
+            break
+        while True:
+          self.slay()
+          if self.getKillCount() >= 15:
+            break
+        while 4 is 4:
+          self.slay()
+          break
+      """
+      aether.transpile code
+      f = aether.createFunction()
+      gen = f.apply dude
+      for i in [1..5]
+        expect(gen.next().done).toEqual false
+        expect(dude.killCount).toEqual i
+      for i in [1..10]
+        expect(gen.next().done).toEqual false
+        expect(dude.killCount).toEqual 5
+      for i in [6..15]
+        expect(gen.next().done).toEqual false
+        expect(dude.killCount).toEqual i
+      expect(gen.next().done).toEqual false
+      expect(dude.killCount).toEqual 16
+      expect(gen.next().done).toEqual true
+      expect(dude.killCount).toEqual 16
+
+    it "Conditional yielding nested loops", ->
+      aether = new Aether language: "python", yieldConditionally: true, whileTrueAutoYield: true
+      dude =
+        killCount: 0
+        slay: ->
+          @killCount += 1
+          aether._shouldYield = true
+        getKillCount: -> return @killCount
+      code = """
+        # outer auto yield, inner yield
+        x = 0
+        while True:
+          y = 0
+          while True:
+            self.slay()
+            y += 1
+            if y >= 2:
+              break
+          x += 1
+          if x >= 3:
+            break
+
+        # outer yield, inner auto yield
+        x = 0
+        while True:
+          self.slay()
+          y = 0
+          while True:
+            y += 1
+            if y >= 4:
+              break
+          x += 1
+          if x >= 5:
+            break
+
+        # outer and inner auto yield
+        x = 0
+        while True:
+          y = 0
+          while True:
+            y += 1
+            if y >= 6:
+              break
+          x += 1
+          if x >= 7:
+            break
+
+        # outer and inner yields
+        x = 0
+        while True:
+          self.slay()
+          y = 0
+          while True:
+            self.slay()
+            y += 1
+            if y >= 9:
+              break
+          x += 1
+          if x >= 8:
+            break
+      """
+      aether.transpile code
+      f = aether.createFunction()
+      gen = f.apply dude
+
+      # NOTE: auto yield loops break before invisible automatic yield
+
+      # outer auto yield, inner yield
+      for i in [1..3]
+        for j in [1..2]
+          expect(gen.next().done).toEqual false
+          expect(dude.killCount).toEqual (i - 1) * 2 + j
+        expect(gen.next().done).toEqual false if i < 3
+      expect(dude.killCount).toEqual 6
+
+      # outer yield, inner auto yield
+      killOffset = dude.killCount
+      for i in [1..5]
+        for j in [1..3]
+          expect(gen.next().done).toEqual false
+        expect(gen.next().done).toEqual false
+        expect(dude.killCount).toEqual i + killOffset
+      expect(dude.killCount).toEqual 6 + 5
+
+      # outer and inner auto yield
+      killOffset = dude.killCount
+      for i in [1..7]
+        for j in [1..5]
+          expect(gen.next().done).toEqual false
+          expect(dude.killCount).toEqual killOffset
+        expect(gen.next().done).toEqual false if i < 7
+      expect(dude.killCount).toEqual 6 + 5 + 0
+
+      # outer and inner yields
+      killOffset = dude.killCount
+      for i in [1..8]
+        expect(gen.next().done).toEqual false
+        for j in [1..9]
+          expect(gen.next().done).toEqual false
+          expect(dude.killCount).toEqual (i - 1) * 9 + i + j + killOffset
+      expect(dude.killCount).toEqual 6 + 5 + 0 + 80
+
+      expect(gen.next().done).toEqual true
+      expect(dude.killCount).toEqual 91
+
+    it "Empty loop", ->
+      code = """
+while True:
+x = 5
+      """
+      aether = new Aether language: "python", whileTrueAutoYield: true
+      aether.transpile code
+      console.log JSON.stringify(aether.problems)
+      expect(aether.problems.warnings.length).toEqual(1)
+      expect(aether.problems.warnings[0].type).toEqual('transpile')
+      expect(aether.problems.warnings[0].message).toEqual("Empty loop. Put 4 spaces in front of statements inside loops.")
