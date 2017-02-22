@@ -133,6 +133,7 @@ return /******/ (function(modules) { // webpackBootstrap
 		try {
 			parse = Sk.parse(options.filename, code);
 			decorate(parse.cst, code, lineOffsets, options);
+			parse.flags = parse.flags | Sk.Parser.CO_FUTURE_UNICODE_LITERALS; //Enable future unicode literals
 			ast = Sk.astFromParse(parse.cst, options.filename, parse.flags);
 		} catch ( e ) {
 			if ( e.extra && e.extra.node ) decorate(e.extra.node, code, lineOffsets, options);
@@ -9991,6 +9992,8 @@ return /******/ (function(modules) { // webpackBootstrap
 		return '???:' + v;
 	};
 
+	//Sk.python3 = true;
+	Sk.Parser = Parser;
 	Sk.builtin.str.prototype.valueOf = function() { return this.v; };
 	Sk.builtin.str.prototype.toString = function() { return this.v; };
 
@@ -10019,7 +10022,17 @@ return /******/ (function(modules) { // webpackBootstrap
 /* 2 */
 /***/ function(module, exports) {
 
+	'use strict';
+
 	var isArray = Array.isArray;
+
+	//TODO: Find a way to not have to do this.
+	function getOpName(op) {
+		if (op.prototype._astname) {
+			return op.prototype._astname;
+		}
+		throw new Error("Coudlnt decode operator name for: " + (op.name || op.toString()));
+	}
 
 	function abort(why) {
 		console.log(new Error("ABORT:" + why).stack);
@@ -10148,6 +10161,7 @@ return /******/ (function(modules) { // webpackBootstrap
 			case 'Continue': return tranformContinue(node, ctx);
 			case 'Compare': return transformCompare(node, ctx);
 			case 'Dict': return transformDict(node, ctx);
+			case 'Delete': return transformDel(node, ctx);
 			case 'Expr': return transformExpr(node, ctx);
 			case 'For': return transformFor(node, ctx);
 			case 'FunctionDef': return transformFunctionDef(node, ctx);
@@ -10172,7 +10186,7 @@ return /******/ (function(modules) { // webpackBootstrap
 			default:
 				console.log("Dont know how to transform: " + node._astname);
 				console.log(JSON.stringify(node, null, '  '));
-				throw new Error("Up");
+				throw new Error("Dont know how to transform: " + node._astname);
 		}
 	}
 
@@ -10200,13 +10214,14 @@ return /******/ (function(modules) { // webpackBootstrap
 		var right = transform(node.value, ctx);
 		var left = transform(node.target, ctx);
 		var tn = createTempName("left");
+		var opName = getOpName(node.op);
 		return [
 			var_(ident(tn), left),
 			ensureStatement({
 				type: "AssignmentExpression",
 				operator: '=',
 				left: left,
-				right: createBinOp(left, node.op.name, right)
+				right: createBinOp(left, opName, right)
 			})
 		];
 	}
@@ -10269,7 +10284,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 		};
 
-		if ( !(op in operators) ) abort("Unknwon binary operator: " + op);
+		if ( !(op in operators) ) abort("Unknown binary operator: " + op);
 
 		return binOp(left, operators[op], right);
 	}
@@ -10277,7 +10292,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	function transformBinOp(node, ctx) {
 		var left = transform(node.left, ctx);
 		var right = transform(node.right, ctx);
-		return createBinOp(left, node.op.name, right);
+		return createBinOp(left, getOpName(node.op), right);
 	}
 
 	function transformBoolOp(node, ctx) {
@@ -10285,13 +10300,14 @@ return /******/ (function(modules) { // webpackBootstrap
 		for ( var i = 0; i < node.values.length; ++i ) {
 			fvals[i] = transform(node.values[i], ctx);
 		}
+		var opName = getOpName(node.op);
 		var operators = {
 			'And': '&&',
 			'Or': '||'
 		};
 
-		if ( !(node.op.name in operators ) ) abort("Unknown bool opeartor: " + node.op.name);
-		var opstr = operators[node.op.name];
+		if ( !(opName in operators ) ) abort("Unknown bool opeartor: " + opName);
+		var opstr = operators[opName];
 
 		var result = fvals.pop();
 		while ( fvals.length > 0 ) {
@@ -10523,19 +10539,20 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	function makeCop(left, op, right) {
 
-	var fxOps = {
+		var fxOps = {
 			"In_": "in",
+			"In": "in",
 			"NotIn": "in"
 		};
-
-		if ( op.name in fxOps  ) {
+		var opName = getOpName(op);
+		if ( opName in fxOps  ) {
 			var call = {
 				type: "CallExpression",
-				callee: makeVariableName("__pythonRuntime.ops." + fxOps[op.name]),
+				callee: makeVariableName("__pythonRuntime.ops." + fxOps[opName]),
 				arguments: [left, right]
 			};
 
-			if ( op.name == "NotIn" ) {
+			if ( opName == "NotIn" ) {
 				return {
 					type: "UnaryExpression",
 					argument: call,
@@ -10558,8 +10575,8 @@ return /******/ (function(modules) { // webpackBootstrap
 			"IsNot": "!=="
 		};
 		
-		if ( !(op.name in operators) ) abort("Unsuported Compare operator: " + op.name);
-		return binOp(left, operators[op.name], right);
+		if ( !(opName in operators) ) abort("Unsuported Compare operator: " + opName);
+		return binOp(left, operators[opName], right);
 	}
 
 	function transformCompare(node, ctx) {
@@ -10581,6 +10598,29 @@ return /******/ (function(modules) { // webpackBootstrap
 
 		return result;
 		
+	}
+
+	function transformDel(node, ctx) {
+		var result = [];
+		for ( var i = 0; i < node.targets.length; ++i ) {
+			var st = node.targets[i];
+			var partial = transform(st, ctx);
+			result.push({
+				type: "AssignmentExpression",
+				operator: "=",
+				left: partial,
+				right: {
+					type: "UnaryExpression",
+					argument: literal(0),
+					operator: 'void',
+					prefix: true
+				}
+			});
+		}
+		return ensureStatement({
+			type: "SequenceExpression",
+			expressions: result
+		});
 	}
 
 	function transformDict(node, ctx) {
@@ -10678,7 +10718,6 @@ return /******/ (function(modules) { // webpackBootstrap
 
 		return {
 			type: "ForStatement",
-			test: {type: "Literal", value: false},
 			init: {
 				"type": "VariableDeclaration",
 				"declarations": [
@@ -10715,11 +10754,12 @@ return /******/ (function(modules) { // webpackBootstrap
 		var iter = transform(node.iter, ctx);
 		var body = ensureStatement(transform(node.body, ctx));
 
+		if ( node.orelse && node.orelse.length > 0 ) abort("else: for-else statement unsupported.");
 		return createForLoop(iident, tident, iter, node.target, body, ctx);
 	}
 
 	function prepareFunctionBody(node, ctx) {
-			var args = node.args.args.slice(0);
+		var args = node.args.args.slice(0);
 		if  ( ctx.inClass ) {
 			//TODO: Make sure it's named self, maybe?
 			args.shift();
@@ -11085,11 +11125,12 @@ return /******/ (function(modules) { // webpackBootstrap
 			"Add": "add",
 			"Mult": "multiply",
 		};
+		var opName = getOpName(node.op);
 
-		if ( node.op.name in fxOps  ) {
+		if ( opName in fxOps  ) {
 			var call = {
 				type: "CallExpression",
-				callee: makeVariableName("__pythonRuntime.ops." + fxOps[node.op.name]),
+				callee: makeVariableName("__pythonRuntime.ops." + fxOps[opName]),
 				arguments: [argument]
 			};
 			return call;
@@ -11101,12 +11142,12 @@ return /******/ (function(modules) { // webpackBootstrap
 			"Invert": "~"
 		};
 
-		if ( !(node.op.name in operators) ) abort("Unknown unary operator: " + node.op.name);
+		if ( !(opName in operators) ) abort("Unknown unary operator: " + opName);
 
 		return {
 			type: "UnaryExpression",
 			argument: argument,
-			operator: operators[node.op.name]
+			operator: operators[opName]
 		};
 		
 	}
@@ -11122,9 +11163,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	module.exports = transform;
 
+
 /***/ },
 /* 3 */
 /***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
 
 	var Sk = __webpack_require__(1);
 
@@ -11144,7 +11188,7 @@ return /******/ (function(modules) { // webpackBootstrap
 		var r;
 		if ( e.context && e.context.length >0 ) {
 			r = e.context[0];	
-		} 
+		}
 
 		if ( e.extra && e.extra.node ) {
 			if ( !r ) {
@@ -11191,7 +11235,9 @@ return /******/ (function(modules) { // webpackBootstrap
 				var lc = e.extra.node.children[e.extra.node.children.length-1];
 				if ( lc.value === 'else' ) after = 'else';
 
-				if ( e.extra.found == 'T_NEWLINE' ) {
+				if ( e.extra.found == 'T_SEMI' ) {
+					return "Replace the `;` at the end of `" + after + "` with a `:`";
+				} else if ( e.extra.found == 'T_NEWLINE' ) {
 					return "Need a `:` on the end of the line following `" + after + "`.";
 				} else if ( e.extra.found == 'T_NAME' ) {
 					return "Need a `:` after `" + after + "`.";
@@ -11215,12 +11261,10 @@ return /******/ (function(modules) { // webpackBootstrap
 					//Scan for the most recent part of the ifstatement.
 					for ( var i = 0; i < lc.children.length; ++i ) {
 						if ( ["if", "elif", "else"].indexOf(lc.children[i].value) !== -1 ) {
-							console.log(i, lc.children[i].value);
 							name = lc.children[i].value + ' statement';
 						}
 					}
 				}
-				console.log("L",lc);
 				if ( lc.value === 'else' ) name = 'else statement';
 				return 'Empty ' + name + '. Put 4 spaces in front of statements inside the ' + name + '.';
 			}
@@ -11235,6 +11279,11 @@ return /******/ (function(modules) { // webpackBootstrap
 				} 
 			}
 
+			if ( e.extra.found === 'T_AMPER' && e.extra.inside == 'and_expr' ) {
+				return 'Python uses the word `and` instead of `&&` for boolean AND expressions.';
+			}
+
+
 			if ( e.extra.inside === 'trailer' ) {
 				//We are parsing either an arglist or a subscript.
 				if ( e.extra.expected.indexOf('T_RPAR') === 0 ) {
@@ -11248,7 +11297,6 @@ return /******/ (function(modules) { // webpackBootstrap
 							[t.start.line,t.start.column],
 							[t.end.line,t.end.column]
 						];
-						console.log("Cz", e.context);
 						return 'Unclosed `(` in function arguments.' + e.extra.node.lineno;
 
 					}
@@ -11276,12 +11324,9 @@ return /******/ (function(modules) { // webpackBootstrap
 					if ( previousType == 'small_stmt' ) {
 						while ( n.children && n.children.length == 1 ) n = n.children[0];
 						var what = code.substring(n.range[0], n.range[1]);
-						console.log("N", n);
 						return 'If you want to call `' + what +'` as function, you need `()`\'s';
 					}
 				}
-				console.log("c", nodeToType(e.extra.node.children[0]));
-				//console.log("RR", nodeToType(e.extra.node.childern[0]));
 			}
 
 			return 'Unexpected token: ' + e.message;
@@ -11310,20 +11355,32 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	module.exports = improveError;
 
+
 /***/ },
 /* 4 */
-/***/ function(module, exports) {
+/***/ function(module, exports, __webpack_require__) {
 
-	var pythonRuntime = module.exports = {
-
-	    // Shim JavaScript objects that impersonate Python equivalents
-
-	    // TODO: use 'type' or isSequence instead of 'instanceof Array' to id these
-
+	(function (root, factory) {
+	  'use strict';
+	  if(true)
+	    module.exports = factory();
+	  else if(typeof define === 'function' && define.amd)
+	    define([], factory);
+	  else if(typeof exports === 'object')
+	    exports["__pythonRuntime"] = factory();
+	  else
+	    root["__pythonRuntime"] = factory();
+	}(this, function() {
+	  'use strict';
+	  var pythonRuntime = {
 	    internal: {
 	      // Only used within runtime
 	      isSeq: function (a) { return a && (a._type === "list" || a._type === "tuple"); },
 	      slice: function (obj, start, end, step) {
+	        var slice;
+	        if ( typeof obj === 'string' ) slice = function(x,y) { return obj.substring(x,y); }
+	        else slice = obj.slice.bind(obj);
+
 	        if (step == null || step === 0) step = 1; // TODO: step === 0 is a runtime error
 	        if (start == null) {
 	          if (step < 0) start = obj.length - 1;
@@ -11336,13 +11393,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        var ret = new pythonRuntime.objects.list(), tmp, i;
 	        if (step < 0) {
-	          tmp = obj.slice(end + 1, start + 1);
+	          tmp = slice(end + 1, start + 1);
 	          for (i = tmp.length - 1; i >= 0; i += step) ret.append(tmp[i]);
 	        } else {
-	          tmp = obj.slice(start, end);
-	          if (step === 1) ret = pythonRuntime.utils.createList(tmp);
+	          tmp = slice(start, end);
+	          if (step === 1 && typeof tmp !== 'string') ret = pythonRuntime.utils.createList(tmp);
 	          else for (i = 0; i < tmp.length; i += step) ret.append(tmp[i]);
 	        }
+	        if ( typeof obj === 'string' ) return ret.join('');
 	        return ret;
 	      },
 	      isJSArray: Array.isArray || function(obj) {
@@ -11466,8 +11524,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	          },
 	          "pop": {
 	            value: function (i) {
-	              if (!i)
-	                i = this.length - 1;
+	              if (arguments.length<1) i = this.length - 1;
 	              var item = this[i];
 	              this.splice(i, 1);
 	              return item;
@@ -11839,6 +11896,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	      },
 	      list: function (iterable) {
 	        var ret = new pythonRuntime.objects.list();
+	        if ( arguments.length == 0 ) return ret;
+	        if ( arguments.length > 1 ) throw new TypeError('list() takes at most 1 argument (' + arguments.length + ' given)');
 	        if (iterable instanceof Array) for (var i in iterable) ret.push(iterable[i]);
 	        else for (var i in iterable) ret.push(i);
 	        return ret;
@@ -11960,6 +12019,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	  }
 
 	  Object.defineProperties(PythonDict.prototype, pythonRuntime.utils.dictPropertyDescriptor);
+	  return pythonRuntime;
+	}));
 
 
 
