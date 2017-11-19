@@ -14,6 +14,7 @@ module.exports = class JavaScript extends Language
   parserID: 'esprima'
   thisValue: 'this'
   thisValueAccess: 'this.'
+  heroValueAccess: 'hero.'
 
   constructor: ->
     super arguments...
@@ -52,25 +53,6 @@ module.exports = class JavaScript extends Language
     traversal.walkAST bAST, removeLocations
     return not _.isEqual(aAST, bAST)
 
-  # Replace instances of 'loop {}' with 'while (true) {}'
-  # Assuming 'loop' is on a single line, only preceded by whitespace
-  replaceLoops: (rawCode) ->
-    return [rawCode, []] if rawCode.indexOf('loop') is -1
-    convertedCode = ""
-    replacedLoops = []
-    rangeIndex = 0
-    lines = rawCode.split '\n'
-    for line, lineNumber in lines
-      if line.replace(/^\s+/g, "").indexOf('loop') is 0
-        start = line.indexOf 'loop'
-        a = line.split("")
-        a[start..start + 3] = 'while (true)'.split ""
-        line = a.join("")
-        replacedLoops.push rangeIndex + start
-      convertedCode += line
-      convertedCode += '\n' unless lineNumber is lines.length - 1
-      rangeIndex += line.length + 1 # + newline
-    [convertedCode, replacedLoops]
 
   # Return an array of problems detected during linting.
   lint: (rawCode, aether) ->
@@ -144,13 +126,7 @@ module.exports = class JavaScript extends Language
     beautified = escodegen.generate ast, {comment: true, parse: esprima.parse}
     beautified
 
-  # Wrap the user code in a function. Store @wrappedCodePrefix and @wrappedCodeSuffix.
-  wrap: (rawCode, aether) ->
-    @wrappedCodePrefix ?="""
-    function #{aether.options.functionName or 'foo'}(#{aether.options.functionParameters.join(', ')}) {
-    """
-    @wrappedCodeSuffix ?= "\n}"
-    @wrappedCodePrefix + rawCode + @wrappedCodeSuffix
+  usesFunctionWrapping: () -> false
 
   # Hacky McHack step for things we can't easily change via AST transforms (which preserve statement ranges).
   # TODO: Should probably refactor and get rid of this soon.
@@ -164,13 +140,24 @@ module.exports = class JavaScript extends Language
   # Using a third-party parser, produce an AST in the standardized Mozilla format.
   parse: (code, aether) ->
     # loc: https://github.com/codecombat/aether/issues/71
-    ast = esprima.parse code, {range: true, loc: true}
+    ast = esprima.parse code, {range: true, loc: true, tolerant: true}
+    errors = []
+    if ast.errors
+      errors = (x for x in ast.errors when x.description isnt 'Illegal return statement')
+      delete ast.errors
+
+    throw errors[0] if errors[0]
+    ast
 
   # Optional: if parseDammit() is implemented, then if parse() throws an error, we'll try again using parseDammit().
   # Useful for parsing incomplete code as it is being written without giving up.
   # This should never throw an error and should always return some sort of AST, even if incomplete or empty.
   parseDammit: (code, aether) ->
     ast = acorn_loose.parse_dammit code, {locations: true, tabSize: 4, ecmaVersion: 5}
+
+    if ast? and ast.body.length isnt 1
+      ast.body = ast.body.slice(0,0)
+    ast
 
     # Esprima uses "range", but acorn_loose only has "locations"
     lines = code.replace(/\n/g, '\n空').split '空'  # split while preserving newlines

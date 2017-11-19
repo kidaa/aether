@@ -396,29 +396,6 @@ describe "Problem Test Suite", ->
         expect(aether.problems.errors[0].hint).toEqual("")
         expect(aether.problems.errors[0].range).toEqual([ { ofs: 0, row: 0, col: 0 }, { ofs: 1, row: 0, col: 1 } ])
 
-      it "loop is not defined", ->
-        code = "loop"
-        aether = new Aether language: "python", simpleLoops: true
-        aether.transpile code
-        aether.run()
-        expect(aether.problems.errors.length).toEqual(1)
-        expect(aether.problems.errors[0].type).toEqual("runtime")
-        expect(aether.problems.errors[0].message).toEqual("Line 1: ReferenceError: loop is not defined")
-        expect(aether.problems.errors[0].hint).toEqual("You are missing a ':' after 'loop'. Try `loop:`")
-
-      it "loop is not defined w/ newline", ->
-        code = """
-        loop
-        x = 5
-        """
-        aether = new Aether language: "python", simpleLoops: true
-        aether.transpile code
-        aether.run()
-        expect(aether.problems.errors.length).toEqual(1)
-        expect(aether.problems.errors[0].type).toEqual("runtime")
-        expect(aether.problems.errors[0].message).toEqual("Line 1: ReferenceError: loop is not defined")
-        expect(aether.problems.errors[0].hint).toEqual("You are missing a ':' after 'loop'. Try `loop:`")
-
       it "loop is not defined w/o simpleLoops", ->
         code = "loop"
         aether = new Aether language: "python"
@@ -539,6 +516,21 @@ describe "Problem Test Suite", ->
         expect(aether.problems.errors[0].message).toEqual("Line 1: Object #<Object> has no method 'movright'")
         expect(aether.problems.errors[0].hint).toEqual("Did you mean moveRight? You do not have an item equipped with that skill.")
 
+      it 'enemy-ish variable is not defined', ->
+        dude = { attack: -> }
+        problemContext = { thisMethods: ['findNearestEnemy'] }
+    
+        aether = new Aether({ language: 'python', problemContext })
+        aether.transpile('self.attack(enemy3)')
+        aether.run(aether.createFunction().bind(dude))
+        expect(aether.problems.errors[0].hint).toBe("There is no `enemy3`. Use `enemy3 = self.findNearestEnemy()` first.")
+    
+        aether = new Aether({ language: 'javascript', problemContext })
+        aether.transpile('this.attack(enemy3)')
+        aether.run(aether.createFunction().bind(dude))
+        expect(aether.problems.errors[0].hint).toBe("There is no `enemy3`. Use `var enemy3 = this.findNearestEnemy()` first.")
+        
+        
     describe "ReferenceError", ->
 
       it "Exact stringReferences", ->
@@ -824,6 +816,21 @@ describe "Problem Test Suite", ->
         expect(aether.problems.errors[0].type).toEqual('runtime')
         expect(aether.problems.errors[0].message).toEqual("Line 1: ReferenceError: atac is not defined")
         expect(aether.problems.errors[0].hint).toEqual("Did you mean attack? You do not have an item equipped with that skill.")
+
+      it 'enemy-ish variable is not defined', ->
+        dude = { attack: -> }
+        code = 'self.attack(enemy3)'
+        problemContext = { thisMethods: ['findNearestEnemy'] }
+        aether = new Aether({ language: 'python', problemContext })
+        aether.transpile(code)
+        aether.run(aether.createFunction().bind(dude))
+        expect(aether.problems.errors[0].hint).toBe("There is no `enemy3`. Use `enemy3 = self.findNearestEnemy()` first.")
+
+        aether = new Aether({ language: 'javascript', problemContext })
+        aether.transpile(code)
+        aether.run(aether.createFunction().bind(dude))
+        expect(aether.problems.errors[0].hint).toBe("There is no `enemy3`. Use `var enemy3 = self.findNearestEnemy()` first.")
+
 
     describe "Missing property", ->
       it "self.self.moveUp()", ->

@@ -27,17 +27,9 @@ module.exports = (options) ->
         type: 'string'
         description: "Input language"
         minLength:1
-        'enum': ['javascript', 'coffeescript', 'python', 'clojure', 'lua', 'io']
+        'enum': ['javascript', 'coffeescript', 'python', 'lua', 'java', 'html']
       languageVersion:
-        oneOf: [
-          type: 'string'
-          description: "Input language version"
-          minLength:1
-          'enum': ["ES5", "ES6"] #change this later
-        ,
-          type: ['null', 'undefined']
-          description: "Input language version"
-        ]
+        type: ['string', 'null', 'undefined']  # TODO: remove option soon
       problems:
         type: ['object', 'undefined']
       problemContext:
@@ -65,9 +57,8 @@ module.exports = (options) ->
         type: 'boolean'
         default: true
       protectAPI:
-        type: 'boolean'
+        type: ['boolean', 'null', 'undefined']
         default: false
-        description: "Whether to clone/restore values coming in and out of user code to limit them to apiProperties."
       simpleLoops:
         type: 'boolean'
         default: false
@@ -76,3 +67,13 @@ module.exports = (options) ->
         type: 'boolean'
         default: true
         description: 'Whether builtins will be protected and restored for enhanced security.'
+      whileTrueAutoYield:
+        type: 'boolean'
+        default: false
+        description: "Make while True loops automatically yield if no other yields"
+      useInterpreter:  # TODO: remove option soon
+        type: ['boolean', 'null', 'undefined']
+        default: true
+      debug:
+        type: ['boolean']
+        default: false

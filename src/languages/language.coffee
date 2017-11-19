@@ -7,9 +7,10 @@ module.exports = class Language
   runtimeGlobals: {}  # Like {__lua: require('lua2js').runtime}
   thisValue: 'this' # E.g. in Python it is 'self'
   thisValueAccess: 'this.' # E.g. in Python it is 'self.'
+  heroValueAccess: 'hero.'
   wrappedCodeIndentLen: 0
 
-  constructor: (@version) ->
+  constructor: ->
 
   # Return true if we can very quickly identify a syntax error.
   obviouslyCannotTranspile: (rawCode) ->
@@ -28,13 +29,6 @@ module.exports = class Language
     a = a.replace(/^[ \t]+\/\/.*/g, '').trimRight()
     b = b.replace(/^[ \t]+\/\/.*/g, '').trimRight()
     return a.split('\n').length isnt b.split('\n').length
-
-  # Replace 'loop' statement with equivalent of 'while(true)'
-  # Return updated code, and an array of starting range indexes for replaced loop keywords
-  # E.g. in JavaScript 'loop {}' is replaced with 'while(true) {}'
-  replaceLoops: (rawCode) ->
-    console.warn "Simple loop not implemented for #{@name}"
-    [rawCode, []]
 
   # Return an array of UserCodeProblems detected during linting.
   lint: (rawCode, aether) ->
@@ -74,6 +68,9 @@ module.exports = class Language
   convertToNativeType: (obj) ->
     obj
 
+  usesFunctionWrapping: () ->
+    true
+
   cloneObj: (obj, cloneFn=(o) -> o) ->
     # Clone obj to a language-specific equivalent object
     # E.g. if obj is an Array and language is Python, we want a new Python list instead of a JavaScript Array.
@@ -92,3 +89,5 @@ module.exports = class Language
 
   rewriteFunctionID: (fid) ->
     fid
+
+  setupInterpreter: (esper) ->

@@ -1,5 +1,6 @@
 ranges = require './ranges'
 string_score = require 'string_score'
+_ = window?._ ? self?._ ? global?._ ? require 'lodash'  # rely on lodash existing, since it busts CodeCombat to browserify it--TODO
 
 # Problems #################################
 #
@@ -67,6 +68,8 @@ extractTranspileErrorDetails = (options) ->
   codePrefix = options.codePrefix or ''
   error = options.error
   options.message = error.message
+  errorContext = options.problemContext or options.aether?.options?.problemContext
+  languageID = options.aether?.options?.language
 
   originalLines = code.slice(codePrefix.length).split '\n'
   lineOffset = codePrefix.split('\n').length - 1
@@ -122,46 +125,47 @@ extractTranspileErrorDetails = (options) ->
     when 'filbert'
       if error.loc
         columnOffset = 0
-        columnOffset++ while originalLines[lineOffset - 2][columnOffset] is ' '
         # filbert lines are 1-based, columns are 0-based
         row = error.loc.line - lineOffset - 1
         col = error.loc.column - columnOffset
         start = ranges.rowColToPos(row, col, code, codePrefix)
         end = ranges.rowColToPos(row, col + error.raisedAt - error.pos, code, codePrefix)
-        # Remove per-row indents
-        start.ofs -= row * 4
-        end.ofs -= row * 4
         options.range = [start, end]
-
-        errorContext = options.problemContext or options.aether?.options?.problemContext
-        languageID = options.aether?.options?.language
-        options.hint = error.hint or getTranspileHint options.message, errorContext, languageID, options.aether.raw, options.range, options.aether.options?.simpleLoops
     when 'iota'
       null
+    when 'cashew'
+      options.range = [ranges.offsetToPos(error.range[0], code, codePrefix),
+                       ranges.offsetToPos(error.range[1], code, codePrefix)]
+      options.hint = error.message
     else
       console.warn "Unhandled UserCodeProblem reporter", options.reporter
 
+  options.hint = error.hint or getTranspileHint options.message, errorContext, languageID, options.aether.raw, options.range, options.aether.options?.simpleLoops
   options
 
 getTranspileHint = (msg, context, languageID, code, range, simpleLoops=false) ->
+  #console.log 'get transpile hint', msg, context, languageID, code, range
   # TODO: Only used by Python currently
   # TODO: JavaScript blocked by jshint range bug: https://github.com/codecombat/aether/issues/113
-  if msg is "Unterminated string constant" and range?
+  if msg in ["Unterminated string constant", "Unclosed string."] and range?
     codeSnippet = code.substring range[0].ofs, range[1].ofs
     # Trim codeSnippet so we can construct the correct suggestion with an ending quote
-    if codeSnippet.length > 0 and codeSnippet[0] in ["'", '"']
-      quoteCharacter = codeSnippet[0]
-      codeSnippet = codeSnippet.slice(1)
+    firstQuoteIndex = codeSnippet.search /['"]/
+    if firstQuoteIndex isnt -1
+      quoteCharacter = codeSnippet[firstQuoteIndex]
+      codeSnippet = codeSnippet.slice firstQuoteIndex + 1
       codeSnippet = codeSnippet.substring 0, nonAlphNumMatch.index if nonAlphNumMatch = codeSnippet.match /[^\w]/
-      hint = "Missing a quotation mark. Try `#{quoteCharacter}#{codeSnippet}#{quoteCharacter}`"
+      return "Missing a quotation mark. Try `#{quoteCharacter}#{codeSnippet}#{quoteCharacter}`"
+
   else if msg is "Unexpected indent"
     if range?
       index = range[0].ofs
       index-- while index > 0 and /\s/.test(code[index])
       if index >= 3 and /else/.test(code.substring(index - 3, index + 1))
-        hint = "You are missing a ':' after 'else'. Try `else:`"
-    hint = "Code needs to line up." unless hint?
-  else if msg.indexOf("Unexpected token") >= 0 and context?
+        return "You are missing a ':' after 'else'. Try `else:`"
+    return "Code needs to line up."
+
+  else if ((msg.indexOf("Unexpected token") >= 0) or (msg.indexOf("Unexpected identifier") >= 0)) and context?
     codeSnippet = code.substring range[0].ofs, range[1].ofs
     lineStart = code.substring range[0].ofs - range[0].col, range[0].ofs
     lineStartLow = lineStart.toLowerCase()
@@ -173,58 +177,62 @@ getTranspileHint = (msg, context, languageID, code, range, simpleLoops=false) ->
     if lineStart.indexOf(hintCreator.thisValue) is 0 and lineStart.trim().length < lineStart.length
       # TODO: update error range so this extra bit is highlighted
       if codeSnippet.indexOf(hintCreator.thisValue) is 0
-        hint = "Delete extra `#{hintCreator.thisValue}`"
+        return "Delete extra `#{hintCreator.thisValue}`"
       else
-        hint = hintCreator.getReferenceErrorHint codeSnippet
+        return hintCreator.getReferenceErrorHint codeSnippet
 
     # Check for two commands on a single line with no semi-colon
     # E.g. "self.moveRight()self.moveDown()"
     # Check for problems following a ')'
-    unless hint?
-      prevIndex = range[0].ofs - 1
-      prevIndex-- while prevIndex >= 0 and /[\t ]/.test(code[prevIndex])
-      if prevIndex >= 0 and code[prevIndex] is ')'
-        if codeSnippet is ')'
-          hint = "Delete extra `)`"
-        else if not /^\s*$/.test(codeSnippet)
-          hint = "Put each command on a separate line"
+    prevIndex = range[0].ofs - 1
+    prevIndex-- while prevIndex >= 0 and /[\t ]/.test(code[prevIndex])
+    if prevIndex >= 0 and code[prevIndex] is ')'
+      if codeSnippet is ')'
+        return "Delete extra `)`"
+      else if not /^\s*$/.test(codeSnippet)
+        return "Put each command on a separate line"
 
-    # Check mismatched parentheses
-    unless hint?
-      parens = 0
-      parens += (if c is '(' then 1 else if c is ')' then -1 else 0) for c in lineStart
-      hint = "Your parentheses must match." unless parens is 0
+    parens = 0
+    parens += (if c is '(' then 1 else if c is ')' then -1 else 0) for c in lineStart
+    return "Your parentheses must match." unless parens is 0
 
     # Check for uppercase loop
     # TODO: Should get 'loop' from problem context
-    if simpleLoops and not hint? and codeSnippet is ':' and lineStart isnt lineStartLow and lineStartLow is 'loop'
-      hint = "Should be lowercase. Try `loop`"
+    if simpleLoops and codeSnippet is ':' and lineStart isnt lineStartLow and lineStartLow is 'loop'
+      return "Should be lowercase. Try `loop`"
 
     # Check for malformed if statements
-    if not hint? and /^\s*if /.test(lineStart)
+    if /^\s*if /.test(lineStart)
       if codeSnippet is ':'
-        hint = "Your if statement is missing a test clause. Try `if True:`"
+        return "Your if statement is missing a test clause. Try `if True:`"
       else if /^\s*$/.test(codeSnippet)
         # TODO: Upate error range to be around lineStart in this case
-        hint = "You are missing a ':' after '#{lineStart}'. Try `#{lineStart}:`"
+        return "You are missing a ':' after '#{lineStart}'. Try `#{lineStart}:`"
 
     # Catchall hint for 'Unexpected token' error
-    if not hint? and /Unexpected token/.test(msg)
-      hint = "Please double-check your code carefully."
-  hint
+    if /Unexpected [token|identifier]/.test(msg)
+      return "There is a problem with your code."
 
 # Runtime Errors
 
 extractRuntimeErrorDetails = (options) ->
-  # NOTE: lastStatementRange set via instrumentation.logStatementStart(originalNode.originalRange)
-  options.range ?= options.aether?.lastStatementRange
   if error = options.error
     options.kind ?= error.name  # I think this will pick up [Error, EvalError, RangeError, ReferenceError, SyntaxError, TypeError, URIError, DOMException]
-    options.message = error.message or error.toString()
+
+    if options.aether.options.useInterpreter
+      options.message = error.toString()
+    else
+      options.message = error.message or error.toString()
+    console.log("Extracting", error)
     options.hint = error.hint or getRuntimeHint options
     options.level ?= error.level
     options.userInfo ?= error.userInfo
-  if options.range
+
+  # NOTE: lastStatementRange set via instrumentation.logStatementStart(originalNode.originalRange)
+  options.range ?= options.aether?.lastStatementRange
+
+
+  if options.range?
     lineNumber = options.range[0].row + 1
     if options.message.search(/^Line \d+/) != -1
       options.message = options.message.replace /^Line \d+/, (match, n) -> "Line #{lineNumber}"
@@ -254,7 +262,7 @@ getRuntimeHint = (options) ->
   # Use problemContext to add hints
   return unless context?
   hintCreator = new HintCreator context, languageID
-  hintCreator.getHint options.message, code, options.range
+  hintCreator.getHint code, options
 
 class HintCreator
   # Create hints for an error message based on a problem context
@@ -266,19 +274,53 @@ class HintCreator
       when 'python' then 'self'
       when 'cofeescript' then '@'
       else 'this'
-    @thisValueAccess = switch languageID
+    @realThisValueAccess = switch languageID
       when 'python' then 'self.'
       when 'cofeescript' then '@'
       else 'this.'
+
+    # We use `hero` as `this` in CodeCombat now, so all `this` related hints
+    # we get in the problem context should really refrence `hero`
+    @thisValueAccess = switch languageID
+      when 'python' then 'hero.'
+      when 'cofeescript' then 'hero.'
+      when 'lua' then 'hero:'
+      else 'hero.'
+
+    @newVariableTemplate = switch languageID
+      when 'javascript' then _.template('var <%= name %> = ')
+      else _.template('<%= name %> = ')
     @methodRegex = switch languageID
       when 'python' then new RegExp "self\\.(\\w+)\\s*\\("
       when 'cofeescript' then new RegExp "@(\\w+)\\s*\\("
       else new RegExp "this\\.(\\w+)\\("
+
     @context = context ? {}
 
-  getHint: (msg, code, range) ->
+  getHint: (code, {message, range, error, aether}) ->
     return unless @context?
-    if (missingMethodMatch = msg.match(/has no method '(.*?)'/)) or msg.match(/is not a function/) or msg.match(/has no method/)
+    if error.code is 'UndefinedVariable' and error.when is 'write' and aether.language.id is 'javascript'
+      return "Missing `var`. Use `var #{error.ident} =` to make a new variable."
+
+    if error.code is "CallNonFunction"
+      ast = error.targetAst
+      if ast.type is "MemberExpression" and not ast.computed
+        extra = ""
+        target = ast.property.name
+        if error.candidates?
+          candidatesLow = (s.toLowerCase() for s in error.candidates)
+          idx = candidatesLow.indexOf(target.toLowerCase())
+          if idx isnt -1
+            newName = error.targetName.replace target, error.candidates[idx]
+            return "Look out for capitalization: `#{error.targetName}` should be `#{newName}`."
+          sm = @getScoreMatch target, [{candidates: error.candidates, msgFormatFn: (match) -> match}]
+          if sm?
+            newName = error.targetName.replace target, sm
+            return "Look out for spelling issues: did you mean `#{newName}` instead of `#{error.targetName}`?"
+        
+        return "`#{ast.object.srcName}` has no method `#{ast.property.name}`."
+
+    if (missingMethodMatch = message.match(/has no method '(.*?)'/)) or message.match(/is not a function/) or message.match(/has no method/)
       # NOTE: We only get this for valid thisValue and parens: self.blahblah()
       # NOTE: We get different error messages for this based on javascript engine:
       # Chrome: 'undefined is not a function'
@@ -292,9 +334,9 @@ class HintCreator
         missingMethodMatch = @methodRegex.exec codeSnippet
         target = missingMethodMatch[1] if missingMethodMatch?
       hint = if target? then @getNoFunctionHint target
-    else if missingReference = msg.match /ReferenceError: ([^\s]+) is not defined/
+    else if missingReference = message.match /([^\s]+) is not defined/
       hint = @getReferenceErrorHint missingReference[1]
-    else if missingProperty = msg.match /Cannot (?:read|call) (?:property|method) '([\w]+)' of (?:undefined|null)/
+    else if missingProperty = message.match /Cannot (?:read|call) (?:property|method) '([\w]+)' of (?:undefined|null)/
       # Chrome: "Cannot read property 'moveUp' of undefined"
       # TODO: Firefox: "tmp5 is undefined"
       hint = @getReferenceErrorHint missingProperty[1]
@@ -361,6 +403,9 @@ class HintCreator
       "Did you mean #{match}? You do not have an item equipped with that skill."
     hint ?= @getScoreMatch target, [candidates: @context.commonThisMethods, msgFormatFn: (match) ->
       "Did you mean #{match}? You do not have an item equipped with that skill."]
+    # Check enemy defined
+    if not hint and target.toLowerCase().indexOf('enemy') > -1 and _.contains(@context.thisMethods, 'findNearestEnemy')
+      hint = "There is no `#{target}`. Use `#{@newVariableTemplate({name:target})}#{@thisValueAccess}findNearestEnemy()` first."
 
     # Try score match with this value prefixed
     # E.g. target = 'selfmoveright', try 'self.moveRight()''
